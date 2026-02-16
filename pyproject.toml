@@ -1,10 +1,11 @@
 [project]
 name = "shodan-mcp"
-version = "0.1.0"
-description = "Add your description here"
+version = "0.2.0"
+description = "Fully async MCP server exposing Shodan API with STDIO and StreamableHTTP support"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp[cli]>=1.12.0",
-    "sseclient-py",
+    "httpx>=0.25.0",
+    "uvicorn>=0.24.0",
 ]

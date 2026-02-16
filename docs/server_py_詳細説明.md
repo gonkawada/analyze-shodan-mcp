@@ -1063,11 +1063,31 @@ async def shodan_trends_top_countries(query: str, days: int = 30, api_key: Optio
 
 ## サーバー起動
 
-### 399-400行目: メインエントリーポイント
+### 399-422行目: メインエントリーポイントとトランスポート選択
 
 ```python
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    
+    # Check if running with HTTP transport
+    if "--http" in sys.argv or "-h" in sys.argv:
+        # Extract port from command line arguments
+        port = 8000  # Default port
+        for i, arg in enumerate(sys.argv):
+            if arg in ["--port", "-p"] and i + 1 < len(sys.argv):
+                try:
+                    port = int(sys.argv[i + 1])
+                except ValueError:
+                    print(f"Invalid port number: {sys.argv[i + 1]}")
+                    sys.exit(1)
+        
+        # Run with HTTP transport (StreamableHTTP with SSE support)
+        print(f"Starting Shodan MCP Server with StreamableHTTP on port {port}...")
+        mcp.run(transport="streamable-http", port=port)
+    else:
+        # Run with STDIO transport (default)
+        print("Starting Shodan MCP Server with STDIO transport...")
+        mcp.run()
 ```
 
 **詳細説明:**
@@ -1076,12 +1096,48 @@ if __name__ == "__main__":
 - `if __name__ == "__main__"`: このスクリプトが直接実行された場合のみ実行
 - モジュールとしてインポートされた場合は実行されない
 
-**400行目**: MCPサーバー起動
-- `mcp.run()`: FastMCPサーバーを起動
-- すべての登録済みツール（`@mcp.tool()`デコレータを持つ関数）を公開
-- MCPプロトコルでクライアントからの接続を待機
+**400行目**: sysモジュールのインポート
+- コマンドライン引数を解析するために使用
+
+**403行目**: HTTPトランスポートのチェック
+- `"--http"` または `"-h"` フラグがコマンドライン引数に含まれているかチェック
+- これらのフラグがある場合、StreamableHTTPトランスポートで起動
+
+**404-412行目**: ポート番号の抽出
+- **405行目**: デフォルトポート8000を設定
+- **406-412行目**: コマンドライン引数から`--port`または`-p`フラグを探す
+  - フラグの次の引数をポート番号として解析
+  - 無効なポート番号の場合、エラーメッセージを表示して終了
+  - `sys.exit(1)`でエラーコード1で終了
+
+**414-416行目**: StreamableHTTPトランスポートで起動
+- **415行目**: 起動メッセージを表示（ポート番号を含む）
+- **416行目**: `mcp.run()`を呼び出し
+  - `transport="streamable-http"`: StreamableHTTPトランスポートを指定
+  - `port=port`: 抽出したポート番号を指定
+  - Server-Sent Events（SSE）を使用したHTTP接続を確立
+  - エンドポイント: `http://localhost:{port}/sse`
+
+**417-420行目**: STDIOトランスポートで起動（デフォルト）
+- **419行目**: 起動メッセージを表示
+- **420行目**: `mcp.run()`を引数なしで呼び出し
+  - デフォルトでSTDIOトランスポートを使用
+  - 標準入出力ストリームでMCPプロトコルを実行
+
+**トランスポートの比較:**
+
+| 特徴 | STDIO | StreamableHTTP |
+|------|-------|----------------|
+| 接続方式 | 標準入出力 | HTTP + SSE |
+| 用途 | Claude Desktop、CLI | Webクライアント、リモートアクセス |
+| ポート | 不要 | 必要（デフォルト: 8000） |
+| ネットワーク | ローカルのみ | ネットワーク経由可能 |
+| 同時接続 | 1クライアント | 複数クライアント |
+| 起動コマンド | `python server.py` | `python server.py --http --port 8000` |
 
 **起動方法:**
+
+**STDIOトランスポート（デフォルト）:**
 ```bash
 # 直接実行
 python server.py
@@ -1093,13 +1149,58 @@ uv run server.py
 uv --directory /path/to/shodan-mcp run server.py
 ```
 
+**StreamableHTTPトランスポート:**
+```bash
+# デフォルトポート8000
+python server.py --http
+
+# カスタムポート
+python server.py --http --port 3000
+
+# 短縮形
+python server.py -h -p 3000
+
+# uvを使用
+uv run server.py --http --port 8000
+```
+
 **起動後の動作:**
+
+**STDIOトランスポート:**
 1. FastMCPサーバーが起動
 2. すべてのツール（約40個）がMCPプロトコルで公開される
-3. MCPクライアント（Claude Desktop、CLIなど）からの接続を待機
+3. 標準入出力でMCPクライアントからの接続を待機
 4. クライアントからツール呼び出しを受信
 5. 対応する非同期関数を実行
 6. 結果をクライアントに返す
+
+**StreamableHTTPトランスポート:**
+1. FastMCPサーバーが起動
+2. 指定されたポートでHTTPサーバーを起動
+3. `/sse`エンドポイントでSSE接続を待機
+4. すべてのツール（約40個）がMCPプロトコルで公開される
+5. 複数のクライアントから同時接続を受け付け
+6. 各クライアントからのツール呼び出しを非同期で処理
+7. 結果をSSE経由でクライアントに返す
+
+**セキュリティ考慮事項:**
+
+**STDIOトランスポート:**
+- ローカル実行のみ
+- ネットワーク露出なし
+- 認証不要（ローカルユーザーのみアクセス可能）
+
+**StreamableHTTPトランスポート:**
+- ネットワーク経由でアクセス可能
+- ファイアウォール設定が必要
+- 認証機能なし（現在の実装）
+- 本番環境では以下の対策を推奨:
+  - リバースプロキシ（Nginx、Caddy）でHTTPS化
+  - 認証ミドルウェアの追加
+  - IPアドレス制限
+  - レート制限
+
+---ライアントに返す
 
 ---
 

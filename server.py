@@ -4,6 +4,7 @@ import asyncio
 from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
+# Initialize FastMCP with support for both STDIO and HTTP transports
 mcp = FastMCP("Shodan MCP Server")
 
 SHODAN_API_BASE = "https://api.shodan.io"
@@ -382,4 +383,24 @@ async def shodan_trends_top_countries(query: str, days: int = 30, api_key: Optio
         return resp.json()
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    
+    # Check if running with HTTP transport
+    if "--http" in sys.argv or "-h" in sys.argv:
+        # Extract port from command line arguments
+        port = 8000  # Default port
+        for i, arg in enumerate(sys.argv):
+            if arg in ["--port", "-p"] and i + 1 < len(sys.argv):
+                try:
+                    port = int(sys.argv[i + 1])
+                except ValueError:
+                    print(f"Invalid port number: {sys.argv[i + 1]}")
+                    sys.exit(1)
+        
+        # Run with HTTP transport (StreamableHTTP with SSE support)
+        print(f"Starting Shodan MCP Server with StreamableHTTP on port {port}...")
+        mcp.run(transport="streamable-http", port=port)
+    else:
+        # Run with STDIO transport (default)
+        print("Starting Shodan MCP Server with STDIO transport...")
+        mcp.run()
